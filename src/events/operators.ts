@@ -206,3 +206,20 @@ export const transformValue = <T, R>(
     error: (err) => observer.error(err),
   });
 };
+
+export const notifyObserver =
+  <E>(sink: Observer<E>) =>
+  (observer: Observer<E>): Observer<E> => ({
+    wait: () => {
+      sink.wait();
+      observer.wait();
+    },
+    next: (value) => {
+      sink.next(value);
+      observer.next(value);
+    },
+    error: (err) => {
+      sink.error(err);
+      observer.error(err);
+    },
+  });

@@ -6,6 +6,7 @@ import {
   transformValue,
   unwrapPromise,
   unwrapHalt,
+  notifyObserver,
 } from "./operators.js";
 import {
   type Handler,
@@ -15,9 +16,10 @@ import {
   makeHandler,
   makeEmitter,
 } from "./handler.js";
-import { Computation, EagerComputation, LOADING_BIT, UNCHANGED } from "../core/index.js";
-import { createStore, onCleanup, type Accessor, type Store } from "../index.js";
-import { STATE_DIRTY } from "../core/constants.js";
+import { Computation, EagerComputation, ERROR_BIT, LOADING_BIT, UNCHANGED } from "../core/index.js";
+import { createStore, onCleanup, type Accessor, type EffectFunction, type Store } from "../index.js";
+import { getOwner } from "../core/owner.js";
+import { EFFECT_PURE, EFFECT_USER } from "../core/constants.js";
 
 export function createEvent<E = any>(
   ...sources: Handler<E>[]
@@ -26,12 +28,11 @@ export function createEvent<E = any>(
     return [makeHandler(new Subject<E>()), makeEmitter(new Subject<E>())] as const;
   }
 
+  const owner = getOwner();
+
   const $ = new Subject<E>(sources.map((s) => {
-    const signal = new EagerComputation(undefined, () => {})
     return getSource(s).map(throughQueue((_fn) => {
-      // @ts-expect-error
-      signal._compute = _fn
-      signal._notify(STATE_DIRTY)
+      owner?._queue.enqueue(EFFECT_PURE, () => _fn())
     }))
   }))
   return [makeHandler($), makeEmitter($)] as const;
@@ -41,14 +42,12 @@ export function createAsyncEvent<I = any, E = any>(
   source: Handler<I>,
   asyncFn: (value: I) => Promise<E>,
 ): Handler<E> {
-  const signal = new EagerComputation(undefined, () => {})
+  const owner = getOwner();
 
   const $ = getSource(source)
     .map(throughRetry)
     .map(throughQueue((_fn) => {
-      // @ts-expect-error
-      signal._compute = _fn
-      signal._notify(STATE_DIRTY)
+      owner?._queue.enqueue(EFFECT_PURE, () => _fn())
     }))
     .map(throughOwner())
     .map(transformValue(asyncFn))
@@ -68,14 +67,12 @@ export function createAsyncEvent<I = any, E = any>(
 
 export function createCycle<E>(handler: Handler<E>, cycle: Emitter<E>) {
   const $ = getObserver(cycle);
-  const signal = new EagerComputation(undefined, () => {})
+  const owner = getOwner();
 
   onCleanup(
     getSource(handler)
       .map(throughQueue((_fn) => {
-        // @ts-expect-error
-        signal._compute = _fn
-        signal._notify(STATE_DIRTY)
+        owner?._queue.enqueue(EFFECT_PURE, () => _fn())
       }))
       .subscribe({
         wait: () => $.wait?.(),
@@ -114,4 +111,38 @@ export function createStream<T>(signal: () => T): Handler<T> {
     return () => {};
   });
   return makeHandler($);
+}
+
+export function createListener<E>(
+  handler: Handler<E>,
+  effect: EffectFunction<E, E>,
+  error: ((err: unknown) => void) | undefined,
+) {
+  const owner = getOwner();
+  let dummy = {}
+
+  onCleanup(
+    getSource(handler)
+      .map(throughQueue((_fn) => {
+        owner?._queue.enqueue(EFFECT_USER, () => _fn())
+      }))
+      .map(notifyObserver({
+        wait: () => {
+          owner?._queue.notify(dummy, LOADING_BIT | ERROR_BIT, LOADING_BIT)
+        },
+        next: (e) => {
+          owner?._queue.notify(dummy, LOADING_BIT | ERROR_BIT, 0)
+        },
+        error: (e) => {
+          owner?._queue.notify(dummy, LOADING_BIT, 0)
+          owner?._queue.notify(dummy, ERROR_BIT, ERROR_BIT)
+        },
+      }))
+      .map(throughOwner())
+      .subscribe({
+        wait: () => {},
+        next: (e) => onCleanup(effect(e as E) || (() => {})),
+        error: (e) => error?.(e),
+      }),
+  );
 }

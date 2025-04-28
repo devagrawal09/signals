@@ -2,12 +2,7 @@ import {
   EFFECT_PURE,
   EFFECT_RENDER,
   EFFECT_USER,
-  STATE_CLEAN,
-  STATE_DISPOSED
 } from "./constants.js";
-import type { Computation } from "./core.js";
-import type { Effect } from "./effect.js";
-import type { Owner } from "./owner.js";
 
 let clock = 0;
 export function getClock() {
@@ -25,7 +20,7 @@ function schedule() {
 }
 
 export interface IQueue {
-  enqueue<T extends Computation | Effect>(type: number, node: T): void;
+  enqueue(type: number, node: () => void): void;
   run(type: number): boolean | void;
   flush(): void;
   addChild(child: IQueue): void;
@@ -38,23 +33,23 @@ export interface IQueue {
 export class Queue implements IQueue {
   _parent: IQueue | null = null;
   _running: boolean = false;
-  _queues: [Computation[], Effect[], Effect[]] = [[], [], []];
+  _queues: [(() => void)[], (() => void)[], (() => void)[]] = [[], [], []];
   _children: IQueue[] = [];
   created = clock;
-  enqueue<T extends Computation | Effect>(type: number, node: T): void {
-    this._queues[0].push(node as any);
-    if (type) this._queues[type].push(node as any);
+  enqueue(type: number, node: () => void): void {
+    this._queues[0].push(node);
+    if (type) this._queues[type].push(node);
     schedule();
   }
   run(type: number) {
     if (this._queues[type].length) {
       if (type === EFFECT_PURE) {
-        runPureQueue(this._queues[type]);
+        runQueue(this._queues[type]);
         this._queues[type] = [];
       } else {
-        const effects = this._queues[type] as Effect[];
+        const effects = this._queues[type];
         this._queues[type] = [];
-        runEffectQueue(effects);
+        runQueue(effects);
       }
     }
     let rerun = false;
@@ -104,32 +99,8 @@ export function flushSync(): void {
   }
 }
 
-/**
- * When re-executing nodes, we want to be extra careful to avoid double execution of nested owners
- * In particular, it is important that we check all of our parents to see if they will rerun
- * See tests/createEffect: "should run parent effect before child effect" and "should run parent
- * memo before child effect"
- */
-function runTop(node: Computation): void {
-  const ancestors: Computation[] = [];
-
-  for (let current: Owner | null = node; current !== null; current = current._parent) {
-    if (current._state !== STATE_CLEAN) {
-      ancestors.push(current as Computation);
-    }
-  }
-
-  for (let i = ancestors.length - 1; i >= 0; i--) {
-    if (ancestors[i]._state !== STATE_DISPOSED) ancestors[i]._updateIfNecessary();
-  }
-}
-
-function runPureQueue(queue: Computation[]) {
+function runQueue(queue: (() => void)[]) {
   for (let i = 0; i < queue.length; i++) {
-    if (queue[i]._state !== STATE_CLEAN) runTop(queue[i]);
+    queue[i]();
   }
-}
-
-function runEffectQueue(queue: Effect[]) {
-  for (let i = 0; i < queue.length; i++) queue[i]._runEffect();
 }

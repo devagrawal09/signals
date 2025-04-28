@@ -9,6 +9,7 @@ import {
 import { Computation, latest, UNCHANGED, type SignalOptions } from "./core.js";
 import { EffectError } from "./error.js";
 import { ERROR_BIT, LOADING_BIT } from "./flags.js";
+import type { Owner } from "./owner.js";
 import { getClock } from "./scheduler.js";
 
 /**
@@ -43,7 +44,7 @@ export class Effect<T = any> extends Computation<T> {
     }
     this._updateIfNecessary();
     !options?.defer &&
-      (this._type === EFFECT_USER ? this._queue.enqueue(this._type, this) : this._runEffect());
+      (this._type === EFFECT_USER ? this._queue.enqueue(this._type, () => this._runEffect()) : this._runEffect());
     if (__DEV__ && !this._parent)
       console.warn("Effects created outside a reactive context will never be disposed");
   }
@@ -66,7 +67,7 @@ export class Effect<T = any> extends Computation<T> {
   override _notify(state: number, skipQueue?: boolean): void {
     if (this._state >= state || skipQueue) return;
 
-    if (this._state === STATE_CLEAN) this._queue.enqueue(this._type, this);
+    if (this._state === STATE_CLEAN) this._queue.enqueue(this._type, () => this._runEffect());
 
     this._state = state;
   }
@@ -124,7 +125,9 @@ export class EagerComputation<T = any> extends Computation<T> {
   override _notify(state: number, skipQueue?: boolean): void {
     if (this._state >= state && !this._forceNotify) return;
 
-    if (this._state === STATE_CLEAN && !skipQueue) this._queue.enqueue(EFFECT_PURE, this);
+    if (this._state === STATE_CLEAN && !skipQueue) this._queue.enqueue(EFFECT_PURE, () => {
+      if (this._state !== STATE_CLEAN) runTop(this);
+    });
 
     super._notify(state, skipQueue);
   }
@@ -139,8 +142,30 @@ export class ProjectionComputation extends Computation {
   _notify(state: number, skipQueue?: boolean): void {
     if (this._state >= state && !this._forceNotify) return;
 
-    if (this._state === STATE_CLEAN && !skipQueue) this._queue.enqueue(EFFECT_PURE, this);
+    if (this._state === STATE_CLEAN && !skipQueue) this._queue.enqueue(EFFECT_PURE, () => {
+      if (this._state !== STATE_CLEAN) runTop(this);
+    });
 
     super._notify(state, true);
+  }
+}
+
+/**
+ * When re-executing nodes, we want to be extra careful to avoid double execution of nested owners
+ * In particular, it is important that we check all of our parents to see if they will rerun
+ * See tests/createEffect: "should run parent effect before child effect" and "should run parent
+ * memo before child effect"
+ */
+function runTop(node: Computation): void {
+  const ancestors: Computation[] = [];
+
+  for (let current: Owner | null = node; current !== null; current = current._parent) {
+    if (current._state !== STATE_CLEAN) {
+      ancestors.push(current as Computation);
+    }
+  }
+
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    if (ancestors[i]._state !== STATE_DISPOSED) ancestors[i]._updateIfNecessary();
   }
 }
