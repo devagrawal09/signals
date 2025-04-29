@@ -1,5 +1,4 @@
 import {
-  EFFECT_PURE,
   EFFECT_RENDER,
   EFFECT_USER,
   STATE_CLEAN,
@@ -35,6 +34,8 @@ export interface IQueue {
   _parent: IQueue | null;
 }
 
+const pureQueue = [] as Computation[];
+
 export class Queue implements IQueue {
   _parent: IQueue | null = null;
   _running: boolean = false;
@@ -42,32 +43,25 @@ export class Queue implements IQueue {
   _children: IQueue[] = [];
   created = clock;
   enqueue<T extends Computation | Effect>(type: number, node: T): void {
-    this._queues[0].push(node as any);
+    pureQueue.push(node as any);
     if (type) this._queues[type].push(node as any);
     schedule();
   }
-  run(type: number) {
+  run(type: typeof EFFECT_RENDER | typeof EFFECT_USER) {
     if (this._queues[type].length) {
-      if (type === EFFECT_PURE) {
-        runPureQueue(this._queues[type]);
-        this._queues[type] = [];
-      } else {
-        const effects = this._queues[type] as Effect[];
-        this._queues[type] = [];
-        runEffectQueue(effects);
-      }
+      const effects = this._queues[type] as Effect[];
+      this._queues[type] = [];
+      runEffectQueue(effects);
     }
-    let rerun = false;
     for (let i = 0; i < this._children.length; i++) {
-      rerun = this._children[i].run(type) || rerun;
+      this._children[i].run(type)
     }
-    if (type === EFFECT_PURE) return (rerun || !!this._queues[type].length);
   }
   flush() {
     if (this._running) return;
     this._running = true;
     try {
-      while (this.run(EFFECT_PURE)) {}
+      runPureQueue()
       incrementClock();
       scheduled = false;
       this.run(EFFECT_RENDER);
@@ -124,9 +118,10 @@ function runTop(node: Computation): void {
   }
 }
 
-function runPureQueue(queue: Computation[]) {
-  for (let i = 0; i < queue.length; i++) {
-    if (queue[i]._state !== STATE_CLEAN) runTop(queue[i]);
+function runPureQueue() {
+  while (pureQueue.length) {
+    const node = pureQueue.shift();
+    if (node && node._state !== STATE_CLEAN) runTop(node);
   }
 }
 
