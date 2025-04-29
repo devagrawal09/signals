@@ -19,9 +19,9 @@ export function makeHandler<E>($: Subscribable<E>): Handler<E> {
   function handler<O>(transform: (e: E) => O): Handler<O> {
     const signal = new EagerComputation(undefined, () => {})
 
-    const next = $.map(throughQueue((_fn) => {
+    const next = $.map(throughQueue((push) => {
       // @ts-expect-error
-      signal._compute = _fn
+      signal._compute = push
       signal._notify(STATE_DIRTY)
     }))
       .map(throughOwner())

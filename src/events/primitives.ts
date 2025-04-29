@@ -16,7 +16,7 @@ import {
   makeHandler,
   makeEmitter,
 } from "./handler.js";
-import { Computation, EagerComputation, ERROR_BIT, LOADING_BIT, UNCHANGED } from "../core/index.js";
+import { Computation, EagerComputation, ERROR_BIT, isPending, LOADING_BIT, tryCatch, UNCHANGED } from "../core/index.js";
 import { createStore, onCleanup, type Accessor, type EffectFunction, type Store } from "../index.js";
 import { getOwner } from "../core/owner.js";
 import { EFFECT_PURE, EFFECT_USER } from "../core/constants.js";
@@ -107,7 +107,17 @@ export function createSubjectStore<T extends object = {}>(
 
 export function createStream<T>(signal: () => T): Handler<T> {
   const $ = new Observable<T>((observer) => {
-    new EagerComputation(null, () => observer.next(signal()));
+    new EagerComputation(null, () => {
+      if (isPending(signal, true)) {
+        observer.wait()
+      }
+      const [error, value] = tryCatch(signal)
+      if(error) {
+        observer.error(error)
+      } else {
+        observer.next(value)
+      }
+    });
     return () => {};
   });
   return makeHandler($);
@@ -123,20 +133,20 @@ export function createListener<E>(
 
   onCleanup(
     getSource(handler)
-      .map(throughQueue((_fn) => {
-        owner?._queue.enqueue(EFFECT_USER, () => _fn())
-      }))
       .map(notifyObserver({
         wait: () => {
           owner?._queue.notify(dummy, LOADING_BIT | ERROR_BIT, LOADING_BIT)
         },
-        next: (e) => {
+        next: () => {
           owner?._queue.notify(dummy, LOADING_BIT | ERROR_BIT, 0)
         },
-        error: (e) => {
+        error: () => {
           owner?._queue.notify(dummy, LOADING_BIT, 0)
           owner?._queue.notify(dummy, ERROR_BIT, ERROR_BIT)
         },
+      }))
+      .map(throughQueue((_fn) => {
+        owner?._queue.enqueue(EFFECT_USER, () => _fn())
       }))
       .map(throughOwner())
       .subscribe({
