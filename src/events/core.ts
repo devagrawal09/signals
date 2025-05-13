@@ -1,5 +1,8 @@
+import { onCleanup } from "../core/owner.js";
+import { createRoot } from "../signals.js";
+
 export type Subscribable<T> = {
-  subscribe(observer: Observer<T>): () => void;
+  subscribe(observer: Observer<T>): void;
   map<R = T>(fn: (observer: Observer<R>) => Observer<T>): Subscribable<R>;
   share(): Subscribable<T>;
 };
@@ -10,14 +13,14 @@ export type Observer<T> = {
 };
 
 export class Observable<T> implements Subscribable<T> {
-  constructor(private _subscribe: (observer: Observer<T>) => () => void) {}
+  constructor(private _subscribe: (observer: Observer<T>) => void) {}
 
   subscribe(observer: Observer<T>) {
-    return this._subscribe(observer);
+    this._subscribe(observer);
   }
 
   map<R = T>(fn: (observer: Observer<R>) => Observer<T>): Subscribable<R> {
-    return new Observable((obs) => this.subscribe(fn(obs)));
+    return new Observable(obs => this.subscribe(fn(obs)));
   }
 
   share(): Subscribable<T> {
@@ -33,36 +36,38 @@ export class Subject<T> extends Observable<T> implements Observer<T> {
   private dispose: (() => void) | undefined;
 
   constructor(sources?: Subscribable<T>[]) {
-    super((observer) => {
+    super(observer => {
       this.observers.add(observer);
 
       if (sources?.length && !this.dispose) {
-        const disposables = sources.map((source) => source.subscribe(observer));
-        this.dispose = () => disposables.forEach((d) => d());
+        createRoot(_dispose => {
+          sources.map(source => source.subscribe(observer));
+          this.dispose = _dispose;
+        });
       }
 
-      return () => {
+      onCleanup(() => {
         this.observers.delete(observer);
         if (this.dispose && this.observers.size === 0) {
           this.dispose();
           this.dispose = undefined;
         }
-      };
+      });
     });
   }
 
   next(value: T) {
     this.waiting = false;
-    this.observers.forEach((observer) => observer.next(value));
+    this.observers.forEach(observer => observer.next(value));
   }
 
   wait() {
     if (this.waiting) return;
     this.waiting = true;
-    this.observers.forEach((observer) => observer.wait());
+    this.observers.forEach(observer => observer.wait());
   }
 
   error(error: any) {
-    this.observers.forEach((observer) => observer.error(error));
+    this.observers.forEach(observer => observer.error(error));
   }
 }
