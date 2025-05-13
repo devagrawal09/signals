@@ -1,16 +1,16 @@
-import { STATE_DISPOSED } from "./core/constants.js";
+import { EFFECT_RENDER, EFFECT_USER } from "./core/constants.js";
 import type { SignalOptions } from "./core/index.js";
 import {
-  Computation,
   compute,
-  EagerComputation,
-  Effect,
   ERROR_BIT,
+  getOwner,
+  LOADING_BIT,
   NotReadyError,
   onCleanup,
   Owner,
   untrack
 } from "./core/index.js";
+import { computed, read, setSignal, signal } from "./core/r3.js";
 
 export type Accessor<T> = () => T;
 
@@ -82,17 +82,13 @@ export function createSignal<T>(
 ): Signal<T | undefined> {
   if (typeof first === "function") {
     const memo = createMemo<Signal<T>>(p => {
-      const node = new Computation<T>(
-        (first as (prev?: T) => T)(p ? untrack(p[0]) : (second as T)),
-        null,
-        third
-      );
-      return [node.read.bind(node), node.write.bind(node)] as Signal<T>;
+      const node = signal<T>((first as (prev?: T) => T)(p ? untrack(p[0]) : (second as T)));
+      return [() => read(node), value => setSignal(node, value)] as Signal<T>;
     });
     return [() => memo()[0](), (value => memo()[1](value)) as Setter<T | undefined>];
   }
-  const node = new Computation(first, null, second as SignalOptions<T>);
-  return [node.read.bind(node), node.write.bind(node) as Setter<T | undefined>];
+  const node = signal<T>(first as T);
+  return [() => read(node), value => setSignal(node, value)] as any;
 }
 
 /**
@@ -126,28 +122,9 @@ export function createMemo<Next extends Prev, Init, Prev>(
   value?: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next> {
-  let node: Computation<Next> | undefined = new Computation<Next>(
-    value as any,
-    compute as any,
-    options
-  );
-  let resolvedValue: Next;
-  return () => {
-    if (node) {
-      if (node._state === STATE_DISPOSED) {
-        node = undefined;
-        return resolvedValue;
-      }
-      resolvedValue = node.wait();
-      // no sources so will never update so can be disposed.
-      // additionally didn't create nested reactivity so can be disposed.
-      if (!node._sources?.length && node._nextSibling?._parent !== node) {
-        node.dispose();
-        node = undefined;
-      }
-    }
-    return resolvedValue;
-  };
+  let prev = value as any;
+  const node = computed(() => (prev = compute(prev)));
+  return () => read(node);
 }
 
 /**
@@ -170,46 +147,43 @@ export function createAsync<T>(
   value?: T,
   options?: MemoOptions<T>
 ): Accessor<T> {
-  const node = new EagerComputation(
-    value as T,
-    (p?: T) => {
-      const source = compute(p);
-      const isPromise = source instanceof Promise;
-      const iterator = source[Symbol.asyncIterator];
-      if (!isPromise && !iterator) {
-        return source as T;
-      }
-      let abort = false;
-      onCleanup(() => (abort = true));
-      if (isPromise) {
-        source.then(
-          value3 => {
+  let prev = value as any;
+  const node = computed(() => {
+    const source = compute(prev);
+    const isPromise = source instanceof Promise;
+    const iterator = source[Symbol.asyncIterator];
+    if (!isPromise && !iterator) {
+      return source as T;
+    }
+    let abort = false;
+    onCleanup(() => (abort = true));
+    if (isPromise) {
+      source.then(
+        value3 => {
+          if (abort) return;
+          setSignal(node, value3);
+        },
+        error => {
+          if (abort) return;
+          setSignal(node, error);
+        }
+      );
+    } else {
+      (async () => {
+        try {
+          for await (let value3 of source as AsyncIterable<T>) {
             if (abort) return;
-            node.write(value3, 0, true);
-          },
-          error => {
-            if (abort) return;
-            node._setError(error);
+            setSignal(node, value3);
           }
-        );
-      } else {
-        (async () => {
-          try {
-            for await (let value3 of source as AsyncIterable<T>) {
-              if (abort) return;
-              node.write(value3, 0, true);
-            }
-          } catch (error: any) {
-            if (abort) return;
-            node.write(error, ERROR_BIT);
-          }
-        })();
-      }
-      throw new NotReadyError();
-    },
-    options
-  );
-  return node.wait.bind(node) as Accessor<T>;
+        } catch (error: any) {
+          if (abort) return;
+          setSignal(node, error);
+        }
+      })();
+    }
+    throw new NotReadyError();
+  });
+  return () => read(node);
 }
 
 /**
@@ -249,13 +223,40 @@ export function createEffect<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
-  void new Effect(
-    value as any,
-    compute as any,
-    effect,
-    error,
-    __DEV__ ? { ...options, name: options?.name ?? "effect" } : options
-  );
+  const queue = getOwner()?._queue;
+
+  let prev = value as any;
+  let current = value as any;
+  let cleanup: (() => void) | undefined;
+
+  const node = computed(() => {
+    try {
+      current = compute(prev);
+    } catch (e) {
+      if (e instanceof NotReadyError) {
+        // do nothing
+        // maybe userEffect.pending()
+      } else {
+        cleanup?.();
+        try {
+          cleanup = error?.(e) as any;
+        } catch (e) {
+          if (!queue?.notify(node, ERROR_BIT, ERROR_BIT)) throw e;
+        }
+      }
+    }
+    queue?.enqueue(EFFECT_USER, () => {
+      cleanup?.();
+      try {
+        cleanup = effect(current, prev) as any;
+      } catch (e) {
+        if (!queue?.notify(node, ERROR_BIT, ERROR_BIT)) throw e;
+      } finally {
+        prev = current;
+      }
+    });
+    return prev;
+  });
 }
 
 /**
@@ -291,9 +292,34 @@ export function createRenderEffect<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
-  void new Effect(value as any, compute as any, effect, undefined, {
-    render: true,
-    ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
+  const queue = getOwner()?._queue;
+
+  let prev = value as any;
+  let current = value as any;
+  let cleanup: (() => void) | undefined;
+
+  const node = computed(() => {
+    try {
+      current = compute(prev);
+      queue?.notify(node, LOADING_BIT | ERROR_BIT, 0);
+    } catch (e) {
+      if (e instanceof NotReadyError) {
+        queue?.notify(node, LOADING_BIT | ERROR_BIT, LOADING_BIT);
+      } else {
+        queue?.notify(node, LOADING_BIT | ERROR_BIT, ERROR_BIT);
+      }
+    }
+    queue?.enqueue(EFFECT_RENDER, () => {
+      cleanup?.();
+      try {
+        cleanup = effect(current, prev) as any;
+      } catch (e) {
+        if (!queue?.notify(node, ERROR_BIT, ERROR_BIT)) throw e;
+      } finally {
+        prev = current;
+      }
+    });
+    return current;
   });
 }
 
@@ -330,7 +356,7 @@ export function runWithOwner<T>(owner: Owner | null, run: () => T): T {
 export function resolve<T>(fn: () => T): Promise<T> {
   return new Promise((res, rej) => {
     createRoot(dispose => {
-      new EagerComputation(undefined, () => {
+      computed(() => {
         try {
           res(fn());
         } catch (err) {
