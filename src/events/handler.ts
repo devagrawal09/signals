@@ -1,13 +1,5 @@
-import {
-  throughOwner,
-  transformValue,
-  unwrapHalt,
-  throughErrorHandler,
-  throughQueue,
-} from "./operators.js";
 import type { Observer, Subscribable } from "./core.js";
-import { EagerComputation } from "../core/effect.js";
-import { STATE_DIRTY } from "../core/constants.js";
+import { throughErrorHandler, throughOwner, transformValue, unwrapHalt } from "./operators.js";
 
 const $OBS = Symbol("handler");
 
@@ -17,14 +9,7 @@ export type Handler<E> = (<O>(transform: (e: E) => O) => Handler<O>) & {
 
 export function makeHandler<E>($: Subscribable<E>): Handler<E> {
   function handler<O>(transform: (e: E) => O): Handler<O> {
-    const signal = new EagerComputation(undefined, () => {})
-
-    const next = $.map(throughQueue((push) => {
-      // @ts-expect-error
-      signal._compute = push
-      signal._notify(STATE_DIRTY)
-    }))
-      .map(throughOwner())
+    const next = $.map(throughOwner())
       .map(throughErrorHandler)
       .map(transformValue(transform))
       .map(unwrapHalt)

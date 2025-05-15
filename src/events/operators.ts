@@ -1,14 +1,10 @@
-import { type Observer } from "./core.js";
-import { withContext, getContext } from "./context.js";
 import { createRoot, onCleanup } from "../index.js";
+import { getContext, withContext } from "./context.js";
+import { type Observer } from "./core.js";
 
 export class HaltError extends Error {
   constructor(public reason?: string) {
-    super(
-      reason
-        ? "Event propogation halted: " + reason
-        : "Event propogation halted",
-    );
+    super(reason ? "Event propogation halted: " + reason : "Event propogation halted");
   }
 }
 
@@ -16,13 +12,10 @@ export function halt(reason?: string): never {
   throw new HaltError(reason);
 }
 
-export const unwrapPromise = <E>(
-  observer: Observer<E>,
-): Observer<Promise<E> | E> => {
-
+export const unwrapPromise = <E>(observer: Observer<E>): Observer<Promise<E> | E> => {
   return {
     wait: () => observer.wait(),
-    next: (e) => {
+    next: e => {
       if (e instanceof Promise) {
         let aborted = false;
         onCleanup(() => (aborted = true));
@@ -31,10 +24,10 @@ export const unwrapPromise = <E>(
 
         const context = getContext()?.clone();
 
-        e.then((n) => {
+        e.then(n => {
           if (aborted) return;
           withContext(context, () => observer.next(n));
-        }).catch((e) => {
+        }).catch(e => {
           if (aborted) return;
           withContext(context, () => observer.error(e));
         });
@@ -42,17 +35,14 @@ export const unwrapPromise = <E>(
       }
       observer.next(e);
     },
-    error: (err) => observer.error(err),
+    error: err => observer.error(err)
   };
 };
 
-export const unwrapAsyncIterator = <E>(
-  observer: Observer<E>,
-): Observer<AsyncIterable<E> | E> => {
-
+export const unwrapAsyncIterator = <E>(observer: Observer<E>): Observer<AsyncIterable<E> | E> => {
   return {
     wait: () => observer.wait(),
-    next: (e) => {
+    next: e => {
       // @ts-ignore
       const iterator = e[Symbol.asyncIterator];
       if (iterator) {
@@ -62,7 +52,7 @@ export const unwrapAsyncIterator = <E>(
         observer.wait();
 
         const context = getContext()?.clone();
-        
+
         const it = e as AsyncIterable<E>;
         (async () => {
           try {
@@ -79,7 +69,7 @@ export const unwrapAsyncIterator = <E>(
       }
       observer.next(e as E);
     },
-    error: (err) => observer.error(err),
+    error: err => observer.error(err)
   };
 };
 
@@ -91,14 +81,14 @@ export const throughQueue =
         const context = getContext()?.clone();
         queue(() => withContext(context, () => observer.wait()));
       },
-      next: (e) => {
+      next: e => {
         const context = getContext()?.clone();
         queue(() => withContext(context, () => observer.next(e)));
       },
-      error: (err) => {
+      error: err => {
         const context = getContext()?.clone();
         queue(() => withContext(context, () => observer.error(err)));
-      },
+      }
     };
   };
 
@@ -108,62 +98,60 @@ export const throughOwner = () => {
 
   return (observer: Observer<any>): Observer<any> => ({
     wait: () => {
-      const context = getContext()?.cloneWithDispose(() => dispose());
+      const context = getContext()?.withDispose(() => dispose());
       withContext(context, () => observer.wait());
     },
-    next: (e) => {
+    next: e => {
       dispose();
 
-      createRoot((_dispose) => {
+      createRoot(_dispose => {
         dispose = _dispose;
-        const context = getContext()?.cloneWithDispose(() => dispose());
+        const context = getContext()?.withDispose(() => dispose());
         withContext(context, () => observer.next(e));
       });
     },
-    error: (err) => {
-      const context = getContext()?.cloneWithDispose(() => dispose());
+    error: err => {
+      const context = getContext()?.withDispose(() => dispose());
       withContext(context, () => observer.error(err));
-    },
+    }
   });
 };
 
 export const throughErrorHandler = <E>(observer: Observer<E>): Observer<E> => {
   return {
     wait: () => observer.wait(),
-    next: (e) => {
+    next: e => {
       try {
         observer.next(e);
       } catch (err) {
         observer.error(err);
       }
     },
-    error: (err) => observer.error(err),
+    error: err => observer.error(err)
   };
 };
 
 export const throughRetry = <E>(observer: Observer<E>): Observer<E> => {
   return {
     wait: () => observer.wait(),
-    next: (e) => {
-      const context = getContext()?.cloneWithRetry(() =>
-        withContext(context, () => observer.next(e)),
-      );
+    next: e => {
+      const context = getContext()?.withRetry(() => withContext(context, () => observer.next(e)));
       withContext(context, () => observer.next(e));
     },
-    error: (err) => observer.error(err),
+    error: err => observer.error(err)
   };
 };
 
 export const unwrapHalt = <E>(observer: Observer<E>): Observer<E> => {
   return {
     wait: () => observer.wait(),
-    next: (e) => observer.next(e),
-    error: (err) => {
+    next: e => observer.next(e),
+    error: err => {
       if (err instanceof HaltError) {
         return console.info(err);
       }
       observer.error(err);
-    },
+    }
   };
 };
 
@@ -176,7 +164,7 @@ export const wrapPromise = <E>(input: Observer<Promise<E>>): Observer<E> => {
       const promise = new Promise<E>((r, j) => ((resolve = r), (reject = j)));
       input.next(promise);
     },
-    next: (e) => {
+    next: e => {
       if (resolve) {
         resolve(e);
         resolve = null;
@@ -185,7 +173,7 @@ export const wrapPromise = <E>(input: Observer<Promise<E>>): Observer<E> => {
         input.next(Promise.resolve(e));
       }
     },
-    error: (e) => {
+    error: e => {
       if (reject) {
         reject(e);
         resolve = null;
@@ -193,17 +181,17 @@ export const wrapPromise = <E>(input: Observer<Promise<E>>): Observer<E> => {
       } else {
         input.error(Promise.reject(e));
       }
-    },
+    }
   };
 };
 
 export const transformValue = <T, R>(
-  fn: (value: T) => R,
+  fn: (value: T) => R
 ): ((observer: Observer<R>) => Observer<T>) => {
-  return (observer) => ({
+  return observer => ({
     wait: () => observer.wait(),
-    next: (value) => observer.next(fn(value)),
-    error: (err) => observer.error(err),
+    next: value => observer.next(fn(value)),
+    error: err => observer.error(err)
   });
 };
 
@@ -214,12 +202,12 @@ export const notifyObserver =
       sink.wait();
       observer.wait();
     },
-    next: (value) => {
+    next: value => {
       sink.next(value);
       observer.next(value);
     },
-    error: (err) => {
+    error: err => {
       sink.error(err);
       observer.error(err);
-    },
+    }
   });
