@@ -80,14 +80,16 @@ export function createSignal<T>(
   second?: T | SignalOptions<T>,
   third?: SignalOptions<T>
 ): Signal<T | undefined> {
+  let node;
   if (typeof first === "function") {
-    const memo = createMemo<Signal<T>>(p => {
-      const node = signal<T>((first as (prev?: T) => T)(p ? untrack(p[0]) : (second as T)));
-      return [() => read(node), value => setSignal(node, value)] as Signal<T>;
-    });
-    return [() => memo()[0](), (value => memo()[1](value)) as Setter<T | undefined>];
+    node = computed((prev?: T) => {
+      const value = (first as (prev?: T) => T)(prev);
+      setSignal(node, value);
+      return value;
+    }, second as T);
+  } else {
+    node = signal<T>(first as T);
   }
-  const node = signal<T>(first as T);
   return [() => read(node), value => setSignal(node, value)] as any;
 }
 
