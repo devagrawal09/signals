@@ -1,4 +1,3 @@
-import { EFFECT_PURE, EFFECT_USER } from "../core/constants.js";
 import {
   Computation,
   EagerComputation,
@@ -16,7 +15,8 @@ import {
   type EffectFunction,
   type Store
 } from "../index.js";
-import { Observable, Subject } from "./core.js";
+import { getContext, withContext } from "./context.js";
+import { Observable, Subject, type Observer } from "./core.js";
 import {
   getObserver,
   getSource,
@@ -25,32 +25,14 @@ import {
   type Emitter,
   type Handler
 } from "./handler.js";
-import {
-  notifyObserver,
-  throughOwner,
-  throughQueue,
-  throughRetry,
-  transformValue,
-  unwrapHalt,
-  unwrapPromise
-} from "./operators.js";
+import { HaltError, notifyObserver, throughOwner, throughQueue, unwrapHalt } from "./operators.js";
 
 export function createEvent<E = any>(...sources: Handler<E>[]): [Handler<E>, Emitter<E>] {
   if (sources.length === 0) {
     return [makeHandler(new Subject<E>()), makeEmitter(new Subject<E>())] as const;
   }
 
-  const owner = getOwner();
-
-  const $ = new Subject<E>(
-    sources.map(s => {
-      return getSource(s).map(
-        throughQueue(_fn => {
-          owner?._queue.enqueue(EFFECT_PURE, () => _fn());
-        })
-      );
-    })
-  );
+  const $ = new Subject<E>(sources.map(getSource));
   return [makeHandler($), makeEmitter($)] as const;
 }
 
@@ -58,18 +40,44 @@ export function createAsyncEvent<I = any, E = any>(
   source: Handler<I>,
   asyncFn: (value: I) => Promise<E>
 ): Handler<E> {
-  const owner = getOwner();
+  function doAsync(source: I, observer: Observer<E>) {
+    const e = asyncFn(source);
+    if (e instanceof Promise) {
+      let aborted = false;
+      onCleanup(() => (aborted = true));
+
+      observer.wait();
+
+      const context = getContext();
+
+      e.then(n => {
+        if (aborted) return;
+        withContext(context, () => observer.next(n));
+      }).catch(e => {
+        if (aborted) return;
+        if (e instanceof HaltError) {
+          return console.info(e);
+        }
+        const contextWithRetry = context?.withRetry(() => {
+          if (aborted) return;
+          doAsync(source, observer);
+        });
+        withContext(contextWithRetry, () => observer.error(e));
+      });
+      return;
+    }
+    observer.next(e);
+  }
 
   const $ = getSource(source)
-    .map(throughRetry)
-    .map(
-      throughQueue(_fn => {
-        owner?._queue.enqueue(EFFECT_PURE, () => _fn());
-      })
-    )
     .map(throughOwner())
-    .map(transformValue(asyncFn))
-    .map<E>(unwrapPromise)
+    .map<E>(observer => {
+      return {
+        wait: () => observer.wait(),
+        next: e => doAsync(e, observer),
+        error: err => observer.error(err)
+      };
+    })
     .map(unwrapHalt);
 
   $.subscribe({
@@ -83,19 +91,12 @@ export function createAsyncEvent<I = any, E = any>(
 
 export function createCycle<E>(handler: Handler<E>, cycle: Emitter<E>) {
   const $ = getObserver(cycle);
-  const owner = getOwner();
 
-  getSource(handler)
-    .map(
-      throughQueue(_fn => {
-        owner?._queue.enqueue(EFFECT_PURE, () => _fn());
-      })
-    )
-    .subscribe({
-      wait: () => $.wait?.(),
-      next: e => $.next(e as E),
-      error: e => $.error?.(e)
-    });
+  getSource(handler).subscribe({
+    wait: () => $.wait?.(),
+    next: e => $.next(e as E),
+    error: e => $.error?.(e)
+  });
 }
 
 export function createSubject<T>(
@@ -180,11 +181,6 @@ export function createListener<E>(
           owner?._queue.notify(dummy, LOADING_BIT, 0);
           owner?._queue.notify(dummy, ERROR_BIT, ERROR_BIT);
         }
-      })
-    )
-    .map(
-      throughQueue(_fn => {
-        owner?._queue.enqueue(EFFECT_USER, () => _fn());
       })
     )
     .map(throughOwner())

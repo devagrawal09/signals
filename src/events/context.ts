@@ -1,17 +1,17 @@
 export class GraphContext {
   constructor(
     public readonly retry = () => {},
-    public readonly dispose = () => {},
+    public readonly dispose = () => {}
   ) {}
 
-  cloneWithDispose(dispose: () => void) {
+  withDispose(dispose: () => void) {
     return new GraphContext(this.retry, () => {
       this.dispose();
       dispose();
     });
   }
 
-  cloneWithRetry(retry: () => void) {
+  withRetry(retry: () => void) {
     return new GraphContext(() => {
       retry();
       this.retry();
