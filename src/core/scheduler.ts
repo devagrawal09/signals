@@ -88,7 +88,7 @@ function queueStashedOptimisticEffects(node: Signal<any>): void {
     if (!sub._type) continue;
     if (enqueueTrackedEffect(sub)) continue;
     const queue = sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
-    if (queue._min > sub._height) queue._min = sub._height;
+    queue._min = Math.min(queue._min, sub._height);
     insertIntoHeap(sub, queue);
   }
 }
@@ -397,7 +397,7 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
     if (enqueueTrackedEffect(sub)) continue;
 
     const queue = sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
-    if (queue._min > sub._height) queue._min = sub._height;
+    queue._min = Math.min(queue._min, sub._height);
     insertIntoHeap(sub, queue);
   }
 }
