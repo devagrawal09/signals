@@ -665,7 +665,7 @@ describe("Array length", () => {
   });
 
   test("direct array index extension updates length immediately", () => {
-    const [state, setState] = createStore([10, 11, 12]);
+    const [state, setState] = createStore<number[]>([10, 11, 12]);
 
     setState(s => {
       expect(s.length).toBe(3);
@@ -684,7 +684,7 @@ describe("Array length", () => {
   });
 
   test("direct array index extension to undefined still updates length", () => {
-    const [state, setState] = createStore([10, 11, 12]);
+    const [state, setState] = createStore<Array<number | undefined>>([10, 11, 12]);
 
     setState(s => {
       expect(s.length).toBe(3);
@@ -790,6 +790,35 @@ describe("Nested Classes", () => {
     });
     flush();
     expect(sum).toBe(15);
+  });
+
+  test("does not wrap Node instances", () => {
+    class NodeMock {}
+    const prevNode = globalThis.Node;
+    Object.defineProperty(globalThis, "Node", {
+      value: NodeMock,
+      configurable: true,
+      writable: true
+    });
+
+    try {
+      const node = new NodeMock();
+      const [store, setStore] = createStore<{ inner?: NodeMock }>({});
+
+      setStore(s => {
+        s.inner = node;
+      });
+
+      expect(store.inner).toBe(node);
+    } finally {
+      if (prevNode === undefined) delete (globalThis as any).Node;
+      else
+        Object.defineProperty(globalThis, "Node", {
+          value: prevNode,
+          configurable: true,
+          writable: true
+        });
+    }
   });
 });
 
