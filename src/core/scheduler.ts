@@ -74,14 +74,12 @@ function runLaneEffects(type: number): void {
 }
 
 function enqueueTrackedEffect(sub: any): boolean {
-  if (sub._type === EFFECT_TRACKED) {
-    if (!sub._modified) {
-      sub._modified = true;
-      sub._queue.enqueue(EFFECT_USER, sub._run);
-    }
-    return true;
+  if (sub._type !== EFFECT_TRACKED) return false;
+  if (!sub._modified) {
+    sub._modified = true;
+    sub._queue.enqueue(EFFECT_USER, sub._run);
   }
-  return false;
+  return true;
 }
 
 function queueStashedOptimisticEffects(node: Signal<any>): void {
