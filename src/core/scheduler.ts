@@ -148,9 +148,7 @@ function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
 
 function cleanupCompletedLanes(completingTransition: Transition | null): void {
   for (const lane of activeLanes) {
-    const owned = completingTransition
-      ? lane._transition === completingTransition
-      : !lane._transition;
+    const owned = lane._transition === completingTransition;
     if (!owned) continue;
     if (!lane._mergedInto) {
       if (lane._effectQueues[0].length) runQueue(lane._effectQueues[0], EFFECT_RENDER);
