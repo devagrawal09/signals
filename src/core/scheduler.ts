@@ -233,10 +233,8 @@ export class Queue implements IQueue {
   restoreQueues(stub: QueueStub) {
     this._queues[0].push(...stub._queues[0]);
     this._queues[1].push(...stub._queues[1]);
-    for (let i = 0; i < stub._children.length; i++) {
-      const childStub = stub._children[i];
-      const child = this._children[i];
-      if (child) child.restoreQueues(childStub);
+    for (const [i, childStub] of stub._children.entries()) {
+      this._children[i]?.restoreQueues(childStub);
     }
   }
 }
