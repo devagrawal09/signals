@@ -86,15 +86,13 @@ export function markNode(el: Computed<unknown>, newState = REACTIVE_DIRTY) {
   for (let link = el._subs; link !== null; link = link._nextSub) {
     markNode(link._sub, REACTIVE_CHECK);
   }
-  if (el._child !== null) {
-    for (
-      let child: FirewallSignal<unknown> | null = el._child;
-      child !== null;
-      child = child._nextChild
-    ) {
-      for (let link = child._subs; link !== null; link = link._nextSub) {
-        markNode(link._sub, REACTIVE_CHECK);
-      }
+  for (
+    let child: FirewallSignal<unknown> | null = el._child;
+    child !== null;
+    child = child._nextChild
+  ) {
+    for (let link = child._subs; link !== null; link = link._nextSub) {
+      markNode(link._sub, REACTIVE_CHECK);
     }
   }
 }
