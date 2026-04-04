@@ -260,8 +260,7 @@ export class GlobalQueue extends Queue {
     try {
       runHeap(dirtyQueue, GlobalQueue._update);
       if (activeTransition) {
-        const isComplete = transitionComplete(activeTransition);
-        if (!isComplete) {
+        if (!transitionComplete(activeTransition)) {
           const stashedTransition = activeTransition!;
           runHeap(zombieQueue, GlobalQueue._update);
           this._pendingNodes = [];
