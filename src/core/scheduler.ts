@@ -224,8 +224,7 @@ export class Queue implements IQueue {
     stub._queues[0].push(...this._queues[0]);
     stub._queues[1].push(...this._queues[1]);
     this._queues = [[], []];
-    for (let i = 0; i < this._children.length; i++) {
-      const child = this._children[i];
+    for (const [i, child] of this._children.entries()) {
       const childStub = (stub._children[i] ??= { _queues: [[], []], _children: [] });
       child.stashQueues(childStub);
     }
