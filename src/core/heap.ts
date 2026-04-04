@@ -112,13 +112,12 @@ export function runHeap(heap: Heap, recompute: (el: Computed<unknown>) => void):
 
 function adjustHeight(el: Computed<unknown>, heap: Heap) {
   deleteFromHeap(el, heap);
-  let newHeight = el._height;
+  const oldHeight = el._height;
   for (let d = el._deps; d; d = d._nextDep) {
     const dep = (d._dep as FirewallSignal<unknown>)._firewall || d._dep;
-    if ((dep as Computed<unknown>)._fn) newHeight = Math.max(newHeight, dep._height + 1);
+    if ((dep as Computed<unknown>)._fn) el._height = Math.max(el._height, dep._height + 1);
   }
-  if (el._height !== newHeight) {
-    el._height = newHeight;
+  if (el._height !== oldHeight) {
     for (let s = el._subs; s !== null; s = s._nextSub) {
       insertIntoHeapHeight(s._sub, heap);
     }
