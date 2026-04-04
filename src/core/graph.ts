@@ -13,13 +13,9 @@ export function unlinkSubs(link: Link): Link | null {
   if (nextSub !== null) nextSub._prevSub = prevSub;
   else dep._subsTail = prevSub;
 
-  if (prevSub !== null) {
-    prevSub._nextSub = nextSub;
-    return nextDep;
-  }
-
-  dep._subs = nextSub;
-  if (nextSub !== null) return nextDep;
+  if (prevSub !== null) prevSub._nextSub = nextSub;
+  else dep._subs = nextSub;
+  if (prevSub || nextSub) return nextDep;
   dep._unobserved?.();
   // No more subscribers, unwatch if computed
   (dep as Computed<any>)._fn &&
