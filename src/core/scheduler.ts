@@ -196,10 +196,9 @@ export class Queue implements IQueue {
   }
   removeChild(child: IQueue) {
     const index = this._children.indexOf(child);
-    if (index >= 0) {
-      this._children.splice(index, 1);
-      child._parent = null;
-    }
+    if (index < 0) return;
+    this._children.splice(index, 1);
+    child._parent = null;
   }
   notify(node: Computed<any>, mask: number, flags: number, error?: any): boolean {
     if (this._parent) return this._parent.notify(node, mask, flags, error);
