@@ -18,18 +18,14 @@ export function unlinkSubs(link: Link): Link | null {
   if (prevSub || nextSub) return nextDep;
   dep._unobserved?.();
   // No more subscribers, unwatch if computed
-  (dep as Computed<any>)._fn &&
-    !(dep as any)._preventAutoDisposal &&
-    !((dep as Computed<any>)._flags & REACTIVE_ZOMBIE) &&
-    unobserved(dep as Computed<any>);
+  const computed = dep as any;
+  if (computed._fn && !computed._preventAutoDisposal && !(computed._flags & REACTIVE_ZOMBIE)) {
+    deleteFromHeap(computed, computed._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+    for (let dep = computed._deps; dep !== null; dep = unlinkSubs(dep)) {}
+    computed._deps = null;
+    disposeChildren(computed, true);
+  }
   return nextDep;
-}
-
-function unobserved(el: Computed<unknown>) {
-  deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
-  for (let dep = el._deps; dep !== null; dep = unlinkSubs(dep)) {}
-  el._deps = null;
-  disposeChildren(el, true);
 }
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L52
