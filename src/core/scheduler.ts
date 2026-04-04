@@ -67,7 +67,6 @@ function runLaneEffects(type: number): void {
   for (const lane of activeLanes) {
     if (lane._mergedInto || lane._pendingAsync.size > 0) continue;
     const effects = lane._effectQueues[type - 1];
-    if (!effects.length) continue;
     lane._effectQueues[type - 1] = [];
     runQueue(effects, type);
   }
