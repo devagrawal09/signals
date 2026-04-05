@@ -26,10 +26,7 @@ export function markDisposal(el: Owner): void {
 }
 
 export function dispose(node: Computed<unknown>): void {
-  let toRemove = node._deps || null;
-  do {
-    toRemove = unlinkSubs(toRemove!);
-  } while (toRemove !== null);
+  for (let dep = node._deps; dep !== null; dep = unlinkSubs(dep)) {}
   node._deps = null;
   node._depsTail = null;
   disposeChildren(node, true);
@@ -45,10 +42,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     if ((child as Computed<unknown>)._deps) {
       const n = child as Computed<unknown>;
       deleteFromHeap(n, n._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
-      let toRemove = n._deps;
-      do {
-        toRemove = unlinkSubs(toRemove!);
-      } while (toRemove !== null);
+      for (let dep = n._deps; dep !== null; dep = unlinkSubs(dep)) {}
       n._deps = null;
       n._depsTail = null;
     }
