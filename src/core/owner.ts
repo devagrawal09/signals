@@ -152,13 +152,8 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
     );
   }
   if (parent) {
-    const lastChild = parent._firstChild;
-    if (lastChild === null) {
-      parent._firstChild = owner;
-    } else {
-      owner._nextSibling = lastChild;
-      parent._firstChild = owner;
-    }
+    owner._nextSibling = parent._firstChild;
+    parent._firstChild = owner;
   }
   return owner;
 }
