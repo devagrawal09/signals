@@ -139,14 +139,10 @@ export function createSignal<T>(
   second?: T | SignalOptions<T>,
   third?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T | undefined> {
-  if (typeof first === "function") {
-    const node = computed<T>(first as any, second as any, third);
-    return [
-      accessor<T | undefined>(node),
-      setSignal.bind(null, node as any) as Setter<T | undefined>
-    ];
-  }
-  const node = signal<T>(first as any, second as SignalOptions<T>);
+  const node =
+    typeof first === "function"
+      ? computed<T>(first as any, second as any, third)
+      : signal<T>(first as any, second as SignalOptions<T>);
   return [accessor<T>(node), setSignal.bind(null, node as any) as Setter<T | undefined>];
 }
 
@@ -178,8 +174,7 @@ export function createMemo<Next extends Prev, Init, Prev>(
   value?: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next> {
-  let node = computed<Next>(compute as any, value as any, options);
-  return accessor<Next>(node);
+  return accessor<Next>(computed<Next>(compute as any, value as any, options));
 }
 
 /**
@@ -211,10 +206,11 @@ export function createEffect<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
+  const bundle = effectFn as any;
   effect(
     compute as any,
-    (effectFn as any).effect || effectFn,
-    (effectFn as any).error,
+    bundle.effect || bundle,
+    bundle.error,
     value as any,
     __DEV__ ? { ...options, name: options?.name ?? "effect" } : options
   );
@@ -276,10 +272,7 @@ export function createTrackedEffect(
   compute: () => void | (() => void),
   options?: EffectOptions
 ): void {
-  trackedEffect(
-    compute,
-    __DEV__ ? { ...options, name: options?.name ?? "trackedEffect" } : options
-  );
+  trackedEffect(compute, __DEV__ ? { ...options, name: options?.name ?? "trackedEffect" } : options);
 }
 
 /**
@@ -298,7 +291,8 @@ export function createReaction(
   effectFn: EffectFunction<undefined> | EffectBundle<undefined>,
   options?: EffectOptions
 ) {
-  let cl: (() => void) | undefined = undefined;
+  const bundle = effectFn as any;
+  let cl: (() => void) | undefined;
   cleanup(() => cl?.());
   const owner = getOwner();
   return (tracking: () => void) => {
@@ -307,7 +301,7 @@ export function createReaction(
         () => (tracking(), getOwner()!),
         node => {
           cl?.();
-          const cleanup = ((effectFn as any).effect || effectFn)?.();
+          const cleanup = (bundle.effect || bundle)?.();
           if (__DEV__ && cleanup !== undefined && typeof cleanup !== "function") {
             throw new Error(
               "Reaction callback returned an invalid cleanup value. Return a cleanup function or undefined."
@@ -316,7 +310,7 @@ export function createReaction(
           cl = cleanup as (() => void) | undefined;
           dispose(node as any);
         },
-        (effectFn as any).error,
+        bundle.error,
         undefined,
         {
           defer: true,

@@ -15,9 +15,7 @@ export interface Heap {
 }
 
 export function increaseHeapSize(n: number, heap: Heap): void {
-  if (n > heap._heap.length) {
-    heap._heap.length = n;
-  }
+  heap._heap.length = Math.max(n, heap._heap.length);
 }
 
 function actualInsertIntoHeap(n: Computed<unknown>, heap: Heap) {
@@ -38,16 +36,16 @@ function actualInsertIntoHeap(n: Computed<unknown>, heap: Heap) {
   if (height > heap._max) heap._max = height;
 }
 export function insertIntoHeap(n: Computed<any>, heap: Heap) {
-  let flags = n._flags;
+  const flags = n._flags;
   if (flags & (REACTIVE_IN_HEAP | REACTIVE_RECOMPUTING_DEPS)) return;
   if (flags & REACTIVE_CHECK) {
-    n._flags = (flags & ~(REACTIVE_CHECK | REACTIVE_DIRTY)) | REACTIVE_DIRTY | REACTIVE_IN_HEAP;
+    n._flags = (flags & ~REACTIVE_CHECK) | REACTIVE_DIRTY | REACTIVE_IN_HEAP;
   } else n._flags = flags | REACTIVE_IN_HEAP;
   if (!(flags & REACTIVE_IN_HEAP_HEIGHT)) actualInsertIntoHeap(n, heap);
 }
 
 export function insertIntoHeapHeight(n: Computed<unknown>, heap: Heap) {
-  let flags = n._flags;
+  const flags = n._flags;
   if (flags & (REACTIVE_IN_HEAP | REACTIVE_RECOMPUTING_DEPS | REACTIVE_IN_HEAP_HEIGHT)) return;
   n._flags = flags | REACTIVE_IN_HEAP_HEIGHT;
   actualInsertIntoHeap(n, heap);
@@ -88,15 +86,13 @@ export function markNode(el: Computed<unknown>, newState = REACTIVE_DIRTY) {
   for (let link = el._subs; link !== null; link = link._nextSub) {
     markNode(link._sub, REACTIVE_CHECK);
   }
-  if (el._child !== null) {
-    for (
-      let child: FirewallSignal<unknown> | null = el._child;
-      child !== null;
-      child = child._nextChild
-    ) {
-      for (let link = child._subs; link !== null; link = link._nextSub) {
-        markNode(link._sub, REACTIVE_CHECK);
-      }
+  for (
+    let child: FirewallSignal<unknown> | null = el._child;
+    child !== null;
+    child = child._nextChild
+  ) {
+    for (let link = child._subs; link !== null; link = link._nextSub) {
+      markNode(link._sub, REACTIVE_CHECK);
     }
   }
 }
@@ -116,16 +112,11 @@ export function runHeap(heap: Heap, recompute: (el: Computed<unknown>) => void):
 
 function adjustHeight(el: Computed<unknown>, heap: Heap) {
   deleteFromHeap(el, heap);
-  let newHeight = el._height;
   for (let d = el._deps; d; d = d._nextDep) {
-    const dep1 = d._dep;
-    const dep = (dep1 as FirewallSignal<unknown>)._firewall || dep1;
-    if ((dep as Computed<unknown>)._fn && dep._height >= newHeight) newHeight = dep._height + 1;
+    const dep = (d._dep as FirewallSignal<unknown>)._firewall || d._dep;
+    if ((dep as Computed<unknown>)._fn) el._height = Math.max(el._height, dep._height + 1);
   }
-  if (el._height !== newHeight) {
-    el._height = newHeight;
-    for (let s = el._subs; s !== null; s = s._nextSub) {
-      insertIntoHeapHeight(s._sub, heap);
-    }
+  for (let s = el._subs; s !== null; s = s._nextSub) {
+    insertIntoHeapHeight(s._sub, heap);
   }
 }

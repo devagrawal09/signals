@@ -348,13 +348,8 @@ export function computed<T>(
     );
   }
   if (context) {
-    const lastChild = context._firstChild;
-    if (lastChild === null) {
-      context._firstChild = self;
-    } else {
-      self._nextSibling = lastChild;
-      context._firstChild = self;
-    }
+    self._nextSibling = context._firstChild;
+    context._firstChild = self;
   }
   if (parent) self._height = parent._height + 1;
   if (snapshotCaptureActive && ownerInSnapshotScope(context)) self._inSnapshotScope = true;
