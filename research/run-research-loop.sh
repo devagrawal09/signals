@@ -24,7 +24,7 @@ while :; do
 
   prompt="$(<"$PROMPT_FILE")"
 
-  if ! opencode run "$prompt" --model openai/gpt-5.4; then
+  if ! claude --model opus -p --dangerously-skip-permissions "$prompt"; then
     printf '[%s] Research pass %d failed\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$count" >&2
     if [[ "$STOP_ON_FAILURE" == "1" ]]; then
       exit 1
