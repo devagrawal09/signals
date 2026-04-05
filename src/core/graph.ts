@@ -1,7 +1,7 @@
 import { REACTIVE_RECOMPUTING_DEPS, REACTIVE_ZOMBIE } from "./constants.js";
 import { deleteFromHeap } from "./heap.js";
 import { disposeChildren } from "./owner.js";
-import { dirtyQueue, zombieQueue } from "./scheduler.js";
+import { dirtyQueue } from "./scheduler.js";
 import type { Computed, FirewallSignal, Link, Signal } from "./types.js";
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
@@ -20,7 +20,7 @@ export function unlinkSubs(link: Link): Link | null {
   // No more subscribers, unwatch if computed
   const computed = dep as any;
   if (computed._fn && !computed._preventAutoDisposal && !(computed._flags & REACTIVE_ZOMBIE)) {
-    deleteFromHeap(computed, computed._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+    deleteFromHeap(computed, dirtyQueue);
     for (let dep = computed._deps; dep !== null; dep = unlinkSubs(dep)) {}
     computed._deps = null;
     disposeChildren(computed, true);
